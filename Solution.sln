@@ -15,14 +15,6 @@ Global
 		Release|x64 = Release|x64
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
-		{67C6ECCC-5244-4C95-B765-7CC2EF594D74}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{67C6ECCC-5244-4C95-B765-7CC2EF594D74}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{67C6ECCC-5244-4C95-B765-7CC2EF594D74}.Debug|x64.ActiveCfg = Debug|Any CPU
-		{67C6ECCC-5244-4C95-B765-7CC2EF594D74}.Debug|x64.Build.0 = Debug|Any CPU
-		{67C6ECCC-5244-4C95-B765-7CC2EF594D74}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{67C6ECCC-5244-4C95-B765-7CC2EF594D74}.Release|Any CPU.Build.0 = Release|Any CPU
-		{67C6ECCC-5244-4C95-B765-7CC2EF594D74}.Release|x64.ActiveCfg = Release|Any CPU
-		{67C6ECCC-5244-4C95-B765-7CC2EF594D74}.Release|x64.Build.0 = Release|Any CPU
 		{724A7CA0-6657-4570-A5B2-D1444D280A91}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{724A7CA0-6657-4570-A5B2-D1444D280A91}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{724A7CA0-6657-4570-A5B2-D1444D280A91}.Debug|x64.ActiveCfg = Debug|x64
@@ -31,14 +23,6 @@ Global
 		{724A7CA0-6657-4570-A5B2-D1444D280A91}.Release|Any CPU.Build.0 = Release|Any CPU
 		{724A7CA0-6657-4570-A5B2-D1444D280A91}.Release|x64.ActiveCfg = Release|x64
 		{724A7CA0-6657-4570-A5B2-D1444D280A91}.Release|x64.Build.0 = Release|x64
-		{D1733BD4-86AE-4585-9326-570955D0DF58}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{D1733BD4-86AE-4585-9326-570955D0DF58}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{D1733BD4-86AE-4585-9326-570955D0DF58}.Debug|x64.ActiveCfg = Debug|x64
-		{D1733BD4-86AE-4585-9326-570955D0DF58}.Debug|x64.Build.0 = Debug|x64
-		{D1733BD4-86AE-4585-9326-570955D0DF58}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{D1733BD4-86AE-4585-9326-570955D0DF58}.Release|Any CPU.Build.0 = Release|Any CPU
-		{D1733BD4-86AE-4585-9326-570955D0DF58}.Release|x64.ActiveCfg = Release|x64
-		{D1733BD4-86AE-4585-9326-570955D0DF58}.Release|x64.Build.0 = Release|x64
 		{A247DC1D-D30F-4377-8FF2-045B81819DAF}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{A247DC1D-D30F-4377-8FF2-045B81819DAF}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{A247DC1D-D30F-4377-8FF2-045B81819DAF}.Debug|x64.ActiveCfg = Debug|Any CPU
@@ -50,10 +34,6 @@ Global
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
-	EndGlobalSection
-	GlobalSection(NestedProjects) = preSolution
-		{724A7CA0-6657-4570-A5B2-D1444D280A91} = {72095993-86E4-436B-883D-41677C572028}
-		{D1733BD4-86AE-4585-9326-570955D0DF58} = {72095993-86E4-436B-883D-41677C572028}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {DF743EB8-FAC2-4496-8A95-66A93CF19B8B}
