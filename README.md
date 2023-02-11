@@ -2,7 +2,7 @@
 
 Internal cross-platform library for trading and analysis. 
 Reads historical asset prices from file and allows to backtest order execution based on some trading signals. 
-Has references from other apps in [this list](https://github.com/Indemos).
+Has references from other apps in [this list](https://github.com/Indemos). The sample is [here](https://github.com/Indemos/Terminal/blob/main/Terminal.Client/Pages/Pairs.razor.cs).
 
 # Status 
 
