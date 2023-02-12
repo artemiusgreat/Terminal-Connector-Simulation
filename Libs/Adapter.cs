@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reactive.Linq;
+using System.Security.Principal;
 using System.Threading.Tasks;
 using Terminal.Core.EnumSpace;
 using Terminal.Core.ExtensionSpace;
@@ -27,9 +28,9 @@ namespace Terminal.Connector.Simulation
     protected IList<IDisposable> _subscriptions;
 
     /// <summary>
-    /// Streams
+    /// Instrument streams
     /// </summary>
-    protected IDictionary<string, StreamReader> _streams;
+    protected IDictionary<string, StreamReader> _instruments;
 
     /// <summary>
     /// Simulation speed in milliseconds
@@ -50,7 +51,7 @@ namespace Terminal.Connector.Simulation
 
       _connections = new List<IDisposable>();
       _subscriptions = new List<IDisposable>();
-      _streams = new Dictionary<string, StreamReader>();
+      _instruments = new Dictionary<string, StreamReader>();
     }
 
     /// <summary>
@@ -62,11 +63,11 @@ namespace Terminal.Connector.Simulation
 
       Account.InitialBalance = Account.Balance;
 
-      _streams = Account
+      _instruments = Account
         .Instruments
         .ToDictionary(o => o.Key, o => new StreamReader(Path.Combine(Source, o.Value.Name)));
 
-      _streams.ForEach(o => _connections.Add(o.Value));
+      _instruments.ForEach(o => _connections.Add(o.Value));
 
       await Subscribe();
     }
@@ -78,29 +79,9 @@ namespace Terminal.Connector.Simulation
     {
       await Unsubscribe();
 
-      var dataStream = Account
-        .Instruments
-        .Select(o => o.Value.Points.ItemStream)
-        .Merge()
-        .Subscribe(message => ProcessPendingOrders());
-
-      var orderStream = OrderStream.Subscribe(message =>
-      {
-        switch (message.Action)
-        {
-          case ActionEnum.Create: CreateOrders(message.Next); break;
-          case ActionEnum.Update: UpdateOrders(message.Next); break;
-          case ActionEnum.Delete: DeleteOrders(message.Next); break;
-        }
-      });
-
-      var balanceStream = Account.Positions.ItemStream.Subscribe(message =>
-      {
-        if (Equals(message.Action, ActionEnum.Create))
-        {
-          Account.Balance += message.Next.GainLoss;
-        }
-      });
+      OrderStream += OnOrderUpdate;
+      Account.Positions.ItemStream += OnPositionUpdate;
+      Account.Instruments.ForEach(o => o.Value.Points.ItemStream += OnPointUpdate);
 
       var span = TimeSpan.FromMilliseconds(Speed);
       var scene = InstanceService<Scene>.Instance;
@@ -109,7 +90,7 @@ namespace Terminal.Connector.Simulation
         .Interval(span, scene.Scheduler)
         .Subscribe(o =>
         {
-          var point = GetPoint(_streams, points);
+          var point = GetPoint(_instruments, points);
 
           if (point is not null)
           {
@@ -117,9 +98,6 @@ namespace Terminal.Connector.Simulation
           }
         });
 
-      _subscriptions.Add(balanceStream);
-      _subscriptions.Add(orderStream);
-      _subscriptions.Add(dataStream);
       _subscriptions.Add(interval);
     }
 
@@ -141,10 +119,40 @@ namespace Terminal.Connector.Simulation
     /// </summary>
     public override Task Unsubscribe()
     {
+      OrderStream -= OnOrderUpdate;
+      Account.Positions.ItemStream -= OnPositionUpdate;
+      Account.Instruments.ForEach(o => o.Value.Points.ItemStream -= OnPointUpdate);
+
       _subscriptions?.ForEach(o => o.Dispose());
       _subscriptions?.Clear();
 
       return Task.FromResult(0);
+    }
+
+    /// <summary>
+    /// Update order state
+    /// </summary>
+    /// <param name="message"></param>
+    protected virtual void OnOrderUpdate(ITransactionMessage<ITransactionOrderModel> message)
+    {
+      switch (message.Action)
+      {
+        case ActionEnum.Create: CreateOrders(message.Next); break;
+        case ActionEnum.Update: UpdateOrders(message.Next); break;
+        case ActionEnum.Delete: DeleteOrders(message.Next); break;
+      }
+    }
+
+    /// <summary>
+    /// Update balance after processing position
+    /// </summary>
+    /// <param name="message"></param>
+    protected virtual void OnPositionUpdate(ITransactionMessage<ITransactionPositionModel> message)
+    {
+      if (Equals(message.Action, ActionEnum.Create))
+      {
+        Account.Balance += message.Next.GainLoss;
+      }
     }
 
     /// <summary>
@@ -274,7 +282,7 @@ namespace Terminal.Connector.Simulation
         Next = nextOrder
       };
 
-      nextOrder.OrderStream.OnNext(message);
+      nextOrder.OrderStream(message);
 
       return nextPosition;
     }
@@ -298,14 +306,6 @@ namespace Terminal.Connector.Simulation
       var nextPosition = isSameBuy || isSameSell ?
         IncreasePosition(nextOrder, previousPosition) :
         DecreasePosition(nextOrder, previousPosition);
-
-      var message = new TransactionMessage<ITransactionOrderModel>
-      {
-        Action = ActionEnum.Update,
-        Next = nextOrder
-      };
-
-      nextOrder.OrderStream.OnNext(message);
 
       return nextPosition;
     }
@@ -336,6 +336,14 @@ namespace Terminal.Connector.Simulation
       Account.ActivePositions.Add(nextPosition.Id, nextPosition);
       Account.Orders.Add(nextOrder);
 
+      var message = new TransactionMessage<ITransactionOrderModel>
+      {
+        Action = ActionEnum.Update,
+        Next = nextOrder
+      };
+
+      nextOrder.OrderStream(message);
+
       return nextPosition;
     }
 
@@ -365,10 +373,19 @@ namespace Terminal.Connector.Simulation
       Account.Positions.Add(previousPosition);
       Account.Orders.Add(nextOrder);
 
+      var message = new TransactionMessage<ITransactionOrderModel>
+      {
+        Action = ActionEnum.Update,
+        Next = nextOrder
+      };
+
       if (nextPosition.Volume.Value.IsEqual(0) is false)
       {
+        message.Action = ActionEnum.Delete;
         Account.ActivePositions.Add(nextPosition.Id, nextPosition);
       }
+
+      nextOrder.OrderStream(message);
 
       return nextPosition;
     }
@@ -396,9 +413,10 @@ namespace Terminal.Connector.Simulation
     }
 
     /// <summary>
-    /// Process pending orders
+    /// Process pending orders on each quote
     /// </summary>
-    protected virtual void ProcessPendingOrders()
+    /// <param name="message"></param>
+    protected virtual void OnPointUpdate(ITransactionMessage<IPointModel> message)
     {
       var positionOrders = Account.ActivePositions.SelectMany(o => o.Value.Orders);
       var activeOrders = Account.ActiveOrders.Values.Concat(positionOrders);
