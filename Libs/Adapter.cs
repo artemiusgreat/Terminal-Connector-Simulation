@@ -84,13 +84,12 @@ namespace Terminal.Connector.Simulation
       Account.Instruments.ForEach(o => o.Value.Points.ItemStream += OnPointUpdate);
 
       var span = TimeSpan.FromMilliseconds(Speed);
-      var scene = InstanceService<Scene>.Instance;
-      var points = new ConcurrentDictionary<string, IPointModel>();
+      var points = new Dictionary<string, IPointModel>();
       var interval = Observable
-        .Interval(span, scene.Scheduler)
+        .Interval(span, Scene.Scheduler)
         .Subscribe(o =>
         {
-          var point = GetPoint(_instruments, points);
+          var point = GetRecord(_instruments, points);
 
           if (point is not null)
           {
@@ -130,40 +129,23 @@ namespace Terminal.Connector.Simulation
     }
 
     /// <summary>
-    /// Update order state
+    /// Get quote
     /// </summary>
     /// <param name="message"></param>
-    protected virtual void OnOrderUpdate(ITransactionMessage<ITransactionOrderModel> message)
+    public override Task<IPointModel> GetPoint(PointMessage message)
     {
-      switch (message.Action)
-      {
-        case ActionEnum.Create: CreateOrders(message.Next); break;
-        case ActionEnum.Update: UpdateOrders(message.Next); break;
-        case ActionEnum.Delete: DeleteOrders(message.Next); break;
-      }
-    }
-
-    /// <summary>
-    /// Update balance after processing position
-    /// </summary>
-    /// <param name="message"></param>
-    protected virtual void OnPositionUpdate(ITransactionMessage<ITransactionPositionModel> message)
-    {
-      if (Equals(message.Action, ActionEnum.Create))
-      {
-        Account.Balance += message.Next.GainLoss;
-      }
+      return Task.FromResult(Account.Instruments[message.Name].Points.LastOrDefault());
     }
 
     /// <summary>
     /// Create order and depending on the account, send it to the processing queue
     /// </summary>
     /// <param name="orders"></param>
-    protected virtual void CreateOrders(params ITransactionOrderModel[] orders)
+    public override Task<IList<ITransactionOrderModel>> CreateOrders(params ITransactionOrderModel[] orders)
     {
       if (ValidateOrders(orders).Any())
       {
-        return;
+        return Task.FromResult(orders as IList<ITransactionOrderModel>);
       }
 
       foreach (var nextOrder in orders)
@@ -176,13 +158,15 @@ namespace Terminal.Connector.Simulation
           case OrderTypeEnum.Market: SendOrder(nextOrder); break;
         }
       }
+
+      return Task.FromResult(orders as IList<ITransactionOrderModel>);
     }
 
     /// <summary>
     /// Update orders
     /// </summary>
     /// <param name="orders"></param>
-    protected virtual ITransactionOrderModel[] UpdateOrders(params ITransactionOrderModel[] orders)
+    public override Task<IList<ITransactionOrderModel>> UpdateOrders(params ITransactionOrderModel[] orders)
     {
       foreach (var nextOrder in orders)
       {
@@ -199,14 +183,14 @@ namespace Terminal.Connector.Simulation
         }
       }
 
-      return orders;
+      return Task.FromResult(orders as IList<ITransactionOrderModel>);
     }
 
     /// <summary>
     /// Recursively cancel orders
     /// </summary>
     /// <param name="orders"></param>
-    protected virtual ITransactionOrderModel[] DeleteOrders(params ITransactionOrderModel[] orders)
+    public override Task<IList<ITransactionOrderModel>> DeleteOrders(params ITransactionOrderModel[] orders)
     {
       foreach (var nextOrder in orders)
       {
@@ -218,7 +202,33 @@ namespace Terminal.Connector.Simulation
         }
       }
 
-      return orders;
+      return Task.FromResult(orders as IList<ITransactionOrderModel>);
+    }
+
+    /// <summary>
+    /// Update order state
+    /// </summary>
+    /// <param name="message"></param>
+    protected virtual void OnOrderUpdate(TransactionMessage<ITransactionOrderModel> message)
+    {
+      switch (message.Action)
+      {
+        case ActionEnum.Create: CreateOrders(message.Next); break;
+        case ActionEnum.Update: UpdateOrders(message.Next); break;
+        case ActionEnum.Delete: DeleteOrders(message.Next); break;
+      }
+    }
+
+    /// <summary>
+    /// Update balance after processing position
+    /// </summary>
+    /// <param name="message"></param>
+    protected virtual void OnPositionUpdate(TransactionMessage<ITransactionPositionModel> message)
+    {
+      if (Equals(message.Action, ActionEnum.Create))
+      {
+        Account.Balance += message.Next.GainLoss;
+      }
     }
 
     /// <summary>
@@ -416,7 +426,7 @@ namespace Terminal.Connector.Simulation
     /// Process pending orders on each quote
     /// </summary>
     /// <param name="message"></param>
-    protected virtual void OnPointUpdate(ITransactionMessage<IPointModel> message)
+    protected virtual void OnPointUpdate(TransactionMessage<IPointModel> message)
     {
       var positionOrders = Account.ActivePositions.SelectMany(o => o.Value.Orders);
       var activeOrders = Account.ActiveOrders.Values.Concat(positionOrders);
@@ -464,7 +474,7 @@ namespace Terminal.Connector.Simulation
     /// Get next available point
     /// </summary>
     /// <returns></returns>
-    protected virtual IPointModel GetPoint(IDictionary<string, StreamReader> streams, IDictionary<string, IPointModel> points)
+    protected virtual IPointModel GetRecord(IDictionary<string, StreamReader> streams, IDictionary<string, IPointModel> points)
     {
       var index = string.Empty;
 

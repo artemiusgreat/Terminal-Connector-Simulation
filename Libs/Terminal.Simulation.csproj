@@ -3,7 +3,7 @@
   <PropertyGroup>
     <TargetFramework>net7.0</TargetFramework>
     <GeneratePackageOnBuild>True</GeneratePackageOnBuild>
-    <Version>1.0.2-prerelease</Version>
+    <Version>1.0.4-prerelease</Version>
     <Description>Internal package for trading and analysis</Description>
     <Authors>artemiusgreat</Authors>
     <Copyright>indemos.com</Copyright>
@@ -14,7 +14,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Terminal.Core" Version="1.0.1-prerelease" />
+    <PackageReference Include="Terminal.Core" Version="1.0.4-prerelease" />
   </ItemGroup>
-
+  
 </Project>
