@@ -1,17 +1,14 @@
-using Distribution.DomainSpace;
 using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Reactive.Concurrency;
 using System.Reactive.Linq;
-using System.Security.Principal;
 using System.Threading.Tasks;
 using Terminal.Core.EnumSpace;
 using Terminal.Core.ExtensionSpace;
 using Terminal.Core.MessageSpace;
 using Terminal.Core.ModelSpace;
-using Terminal.Core.ServiceSpace;
 
 namespace Terminal.Connector.Simulation
 {
@@ -85,8 +82,9 @@ namespace Terminal.Connector.Simulation
 
       var span = TimeSpan.FromMilliseconds(Speed);
       var points = new Dictionary<string, IPointModel>();
+      var scheduler = new EventLoopScheduler();
       var interval = Observable
-        .Interval(span, Scene.Scheduler)
+        .Interval(span, scheduler)
         .Subscribe(o =>
         {
           var point = GetRecord(_instruments, points);
