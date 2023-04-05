@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Specialized;
 using System.IO;
 using System.Linq;
 using System.Reactive.Concurrency;
@@ -77,8 +78,8 @@ namespace Terminal.Connector.Simulation
       await Unsubscribe();
 
       OrderStream += OnOrderUpdate;
-      Account.Positions.ItemStream += OnPositionUpdate;
-      Account.Instruments.ForEach(o => o.Value.Points.ItemStream += OnPointUpdate);
+      Account.Positions.CollectionChanged += OnPositionUpdate;
+      Account.Instruments.ForEach(o => o.Value.Points.CollectionChanged += OnPointUpdate);
 
       var span = TimeSpan.FromMilliseconds(Speed);
       var points = new Dictionary<string, IPointModel>();
@@ -117,8 +118,8 @@ namespace Terminal.Connector.Simulation
     public override Task Unsubscribe()
     {
       OrderStream -= OnOrderUpdate;
-      Account.Positions.ItemStream -= OnPositionUpdate;
-      Account.Instruments.ForEach(o => o.Value.Points.ItemStream -= OnPointUpdate);
+      Account.Positions.CollectionChanged -= OnPositionUpdate;
+      Account.Instruments.ForEach(o => o.Value.Points.CollectionChanged -= OnPointUpdate);
 
       _subscriptions?.ForEach(o => o.Dispose());
       _subscriptions?.Clear();
@@ -221,11 +222,11 @@ namespace Terminal.Connector.Simulation
     /// Update balance after processing position
     /// </summary>
     /// <param name="message"></param>
-    protected virtual void OnPositionUpdate(TransactionMessage<ITransactionPositionModel> message)
+    protected virtual void OnPositionUpdate(object sender, NotifyCollectionChangedEventArgs e)
     {
-      if (Equals(message.Action, ActionEnum.Create))
+      foreach (ITransactionPositionModel message in e.NewItems)
       {
-        Account.Balance += message.Next.GainLoss;
+        Account.Balance += message.GainLoss;
       }
     }
 
@@ -404,7 +405,7 @@ namespace Terminal.Connector.Simulation
     /// <param name="nextOrder"></param>
     protected virtual ITransactionPositionModel GetPosition(ITransactionOrderModel nextOrder)
     {
-      return new TransactionPositionModel
+      return new PositionModel
       {
         Id = nextOrder.Id,
         Name = nextOrder.Name,
@@ -424,7 +425,7 @@ namespace Terminal.Connector.Simulation
     /// Process pending orders on each quote
     /// </summary>
     /// <param name="message"></param>
-    protected virtual void OnPointUpdate(TransactionMessage<IPointModel> message)
+    protected virtual void OnPointUpdate(object sender, NotifyCollectionChangedEventArgs e)
     {
       var positionOrders = Account.ActivePositions.SelectMany(o => o.Value.Orders);
       var activeOrders = Account.ActiveOrders.Values.Concat(positionOrders);
