@@ -1,3 +1,5 @@
+using FluentValidation.Results;
+using Mapper;
 using System;
 using System.Collections.Generic;
 using System.Collections.Specialized;
@@ -6,14 +8,16 @@ using System.Linq;
 using System.Reactive.Concurrency;
 using System.Reactive.Linq;
 using System.Threading.Tasks;
-using Terminal.Core.EnumSpace;
-using Terminal.Core.ExtensionSpace;
-using Terminal.Core.MessageSpace;
-using Terminal.Core.ModelSpace;
+using Terminal.Core.Domains;
+using Terminal.Core.Enums;
+using Terminal.Core.Extensions;
+using Terminal.Core.Models;
+using Terminal.Core.Services;
+using Terminal.Core.Validators;
 
 namespace Terminal.Connector.Simulation
 {
-  public class Adapter : ConnectorModel, IDisposable
+  public class Adapter : Core.Domains.Connector, IDisposable
   {
     /// <summary>
     /// Disposable connections
@@ -59,7 +63,7 @@ namespace Terminal.Connector.Simulation
     {
       await Disconnect();
 
-      Account.InitialBalance = Account.Balance;
+      CorrectAccounts(Account);
 
       _instruments = Account
         .Instruments
@@ -82,7 +86,7 @@ namespace Terminal.Connector.Simulation
       Account.Instruments.ForEach(o => o.Value.Points.CollectionChanged += OnPointUpdate);
 
       var span = TimeSpan.FromMilliseconds(Speed);
-      var points = new Dictionary<string, IPointModel>();
+      var points = new Dictionary<string, PointModel>();
       var scheduler = new EventLoopScheduler();
       var interval = Observable
         .Interval(span, scheduler)
@@ -92,7 +96,7 @@ namespace Terminal.Connector.Simulation
 
           if (point is not null)
           {
-            UpdatePoints(point);
+            CorrectPoints(point);
           }
         });
 
@@ -131,7 +135,7 @@ namespace Terminal.Connector.Simulation
     /// Get quote
     /// </summary>
     /// <param name="message"></param>
-    public override Task<IPointModel> GetPoint(PointMessage message)
+    public override Task<PointModel> GetPoint(PointQueryModel message)
     {
       return Task.FromResult(Account.Instruments[message.Name].Points.LastOrDefault());
     }
@@ -140,75 +144,85 @@ namespace Terminal.Connector.Simulation
     /// Create order and depending on the account, send it to the processing queue
     /// </summary>
     /// <param name="orders"></param>
-    public override Task<IList<ITransactionOrderModel>> CreateOrders(params ITransactionOrderModel[] orders)
+    public override Task<ResponseModel<OrderModel, IList<ValidationFailure>>> CreateOrders(params OrderModel[] orders)
     {
-      if (ValidateOrders(orders).Any())
+      var response = ValidateOrders(CorrectOrders(orders).ToArray());
+
+      if (response.Count > 0)
       {
-        return Task.FromResult(orders as IList<ITransactionOrderModel>);
+        return Task.FromResult(response);
       }
 
-      foreach (var nextOrder in orders)
+      foreach (var order in orders)
       {
-        switch (nextOrder.Type)
+        switch (order.Type)
         {
           case OrderTypeEnum.Stop:
           case OrderTypeEnum.Limit:
-          case OrderTypeEnum.StopLimit: SendPendingOrder(nextOrder); break;
-          case OrderTypeEnum.Market: SendOrder(nextOrder); break;
+          case OrderTypeEnum.StopLimit: SendPendingOrder(order); break;
+          case OrderTypeEnum.Market: SendOrder(order); break;
         }
       }
 
-      return Task.FromResult(orders as IList<ITransactionOrderModel>);
+      return Task.FromResult(response);
     }
 
     /// <summary>
     /// Update orders
     /// </summary>
     /// <param name="orders"></param>
-    public override Task<IList<ITransactionOrderModel>> UpdateOrders(params ITransactionOrderModel[] orders)
+    public override Task<ResponseModel<OrderModel, IList<ValidationFailure>>> UpdateOrders(params OrderModel[] orders)
     {
-      foreach (var nextOrder in orders)
+      var nextOrders = orders.Select(nextOrder =>
       {
-        var order = Account.ActiveOrders[nextOrder.Id];
+        var x1 = Account.ActiveOrders[nextOrder.Transaction.Id].Clone() as OrderModel;
+        var x2 = Mapper<OrderModel, OrderModel>.Merge(
+          nextOrder,
+          Account.ActiveOrders[nextOrder.Transaction.Id].Clone() as OrderModel);
 
-        if (order is not null)
-        {
-          var update = GetPosition(nextOrder);
+        return Mapper<OrderModel, OrderModel>.Merge(
+          nextOrder,
+          Account.ActiveOrders[nextOrder.Transaction.Id].Clone() as OrderModel);
 
-          if (ValidateOrders().Any() is false)
-          {
-            Account.ActiveOrders[nextOrder.Id] = update;
-          }
-        }
+      }).ToArray();
+
+      var response = ValidateOrders(nextOrders);
+
+      if (response.Count > 0)
+      {
+        return Task.FromResult(response);
       }
 
-      return Task.FromResult(orders as IList<ITransactionOrderModel>);
+      foreach (var nextOrder in nextOrders)
+      {
+        Account.ActiveOrders[nextOrder.Transaction.Id] = nextOrder;
+      }
+
+      return Task.FromResult(response);
     }
 
     /// <summary>
     /// Recursively cancel orders
     /// </summary>
     /// <param name="orders"></param>
-    public override Task<IList<ITransactionOrderModel>> DeleteOrders(params ITransactionOrderModel[] orders)
+    public override Task<ResponseModel<OrderModel, IList<ValidationFailure>>> DeleteOrders(params OrderModel[] orders)
     {
+      var response = new ResponseModel<OrderModel, IList<ValidationFailure>>();
+
       foreach (var nextOrder in orders)
       {
-        nextOrder.Status = OrderStatusEnum.Cancelled;
-
-        if (Account.ActiveOrders.ContainsKey(nextOrder.Id))
-        {
-          Account.ActiveOrders.Remove(nextOrder.Id);
-        }
+        Account.ActiveOrders[nextOrder.Transaction.Id].Transaction.Status = OrderStatusEnum.Canceled;
+        Account.ActiveOrders.Remove(nextOrder.Transaction.Id);
       }
 
-      return Task.FromResult(orders as IList<ITransactionOrderModel>);
+      return Task.FromResult(response);
     }
 
     /// <summary>
     /// Update order state
     /// </summary>
     /// <param name="message"></param>
-    protected virtual void OnOrderUpdate(TransactionMessage<ITransactionOrderModel> message)
+    protected virtual void OnOrderUpdate(StateModel<OrderModel> message)
     {
       switch (message.Action)
       {
@@ -224,7 +238,7 @@ namespace Terminal.Connector.Simulation
     /// <param name="message"></param>
     protected virtual void OnPositionUpdate(object sender, NotifyCollectionChangedEventArgs e)
     {
-      foreach (ITransactionPositionModel message in e.NewItems)
+      foreach (PositionModel message in e.NewItems)
       {
         Account.Balance += message.GainLoss;
       }
@@ -235,12 +249,12 @@ namespace Terminal.Connector.Simulation
     /// </summary>
     /// <param name="nextOrder"></param>
     /// <returns></returns>
-    protected virtual ITransactionOrderModel SendPendingOrder(ITransactionOrderModel nextOrder)
+    protected virtual OrderModel SendPendingOrder(OrderModel nextOrder)
     {
-      nextOrder.Status = OrderStatusEnum.Placed;
+      nextOrder.Transaction.Status = OrderStatusEnum.Placed;
 
       Account.Orders.Add(nextOrder);
-      Account.ActiveOrders.Add(nextOrder.Id, nextOrder);
+      Account.ActiveOrders.Add(nextOrder.Transaction.Id, nextOrder);
 
       return nextOrder;
     }
@@ -250,47 +264,50 @@ namespace Terminal.Connector.Simulation
     /// </summary>
     /// <param name="nextOrder"></param>
     /// <returns></returns>
-    protected virtual ITransactionPositionModel SendOrder(ITransactionOrderModel nextOrder)
+    protected virtual PositionModel SendOrder(OrderModel nextOrder)
     {
       var previousPosition = Account
         .ActivePositions
         .Values
-        .FirstOrDefault(o => Equals(o.Instrument.Name, nextOrder.Instrument.Name));
+        .FirstOrDefault(o => Equals(
+          o.Order.Transaction.Instrument.Name,
+          nextOrder.Transaction.Instrument.Name));
 
-      return previousPosition is null ?
-        CreatePosition(nextOrder) :
-        UpdatePosition(nextOrder, previousPosition);
+      if (previousPosition is not null)
+      {
+        return UpdatePosition(nextOrder, previousPosition);
+      }
+
+      return CreatePosition(nextOrder);
     }
 
     /// <summary>
     /// Create position when there are no other positions
     /// </summary>
-    /// <param name="nextOrder"></param>
+    /// <param name="order"></param>
     /// <returns></returns>
-    protected virtual ITransactionPositionModel CreatePosition(ITransactionOrderModel nextOrder)
+    protected virtual PositionModel CreatePosition(OrderModel order)
     {
-      var openPrices = GetOpenPrices(nextOrder);
-      var openPrice = openPrices.Last();
-
-      nextOrder.Time = openPrice.Time;
-      nextOrder.Price = openPrice.Price;
-      nextOrder.Status = OrderStatusEnum.Filled;
-
-      var nextPosition = GetPosition(nextOrder);
-
-      nextPosition.Time = openPrice.Time;
-      nextPosition.OpenPrices = openPrices;
-      nextPosition.OpenPrice = nextOrder.Price;
+      var nextOrder = order.Clone() as OrderModel;
+      var nextPosition = new PositionModel
+      {
+        Order = order,
+        Orders = new List<OrderModel>
+        {
+          nextOrder
+        }
+      };
 
       Account.Orders.Add(nextOrder);
-      Account.ActivePositions.Add(nextPosition.Id, nextPosition);
+      Account.ActivePositions.Add(nextOrder.Transaction.Id, nextPosition);
 
-      var message = new TransactionMessage<ITransactionOrderModel>
+      var message = new StateModel<OrderModel>
       {
         Action = ActionEnum.Create,
         Next = nextOrder
       };
 
+      nextOrder.Transaction.Status = nextPosition.Order.Transaction.Status = OrderStatusEnum.Filled;
       nextOrder.OrderStream(message);
 
       return nextPosition;
@@ -302,50 +319,48 @@ namespace Terminal.Connector.Simulation
     /// <param name="nextOrder"></param>
     /// <param name="previousPosition"></param>
     /// <returns></returns>
-    protected virtual ITransactionPositionModel UpdatePosition(ITransactionOrderModel nextOrder, ITransactionPositionModel previousPosition)
+    protected virtual PositionModel UpdatePosition(OrderModel nextOrder, PositionModel previousPosition)
     {
-      var isSameBuy = Equals(previousPosition.Side, OrderSideEnum.Buy) && Equals(nextOrder.Side, OrderSideEnum.Buy);
-      var isSameSell = Equals(previousPosition.Side, OrderSideEnum.Sell) && Equals(nextOrder.Side, OrderSideEnum.Sell);
-      var openPrice = GetOpenPrices(nextOrder).Last();
+      var isSameBuy = Equals(previousPosition.Order.Side, OrderSideEnum.Buy) && Equals(nextOrder.Side, OrderSideEnum.Buy);
+      var isSameSell = Equals(previousPosition.Order.Side, OrderSideEnum.Sell) && Equals(nextOrder.Side, OrderSideEnum.Sell);
 
-      nextOrder.Time = openPrice.Time;
-      nextOrder.Price = openPrice.Price;
-      nextOrder.Status = OrderStatusEnum.Filled;
+      nextOrder.Transaction.Status = OrderStatusEnum.Filled;
 
-      var nextPosition = isSameBuy || isSameSell ?
-        IncreasePosition(nextOrder, previousPosition) :
-        DecreasePosition(nextOrder, previousPosition);
+      if (isSameBuy || isSameSell)
+      {
+        return IncreasePosition(nextOrder, previousPosition);
+      }
 
-      return nextPosition;
+      return DecreasePosition(nextOrder, previousPosition);
     }
 
     /// <summary>
     /// Create position when there is a position 
     /// </summary>
-    /// <param name="nextOrder"></param>
+    /// <param name="order"></param>
     /// <param name="previousPosition"></param>
     /// <returns></returns>
-    protected virtual ITransactionPositionModel IncreasePosition(ITransactionOrderModel nextOrder, ITransactionPositionModel previousPosition)
+    protected virtual PositionModel IncreasePosition(OrderModel order, PositionModel previousPosition)
     {
-      var nextPosition = GetPosition(nextOrder);
-      var openPrices = GetOpenPrices(nextOrder);
-      var openPrice = openPrices.Last();
+      var nextOrder = order.Clone() as OrderModel;
+      var nextPosition = previousPosition.Clone() as PositionModel;
 
-      nextPosition.Time = openPrice.Time;
-      nextPosition.Volume = nextOrder.Volume + previousPosition.Volume;
-      nextPosition.OpenPrices = previousPosition.OpenPrices.Concat(openPrices).ToList();
-      nextPosition.OpenPrice = nextPosition.OpenPrices.Sum(o => o.Volume * o.Price) / nextPosition.OpenPrices.Sum(o => o.Volume);
+      nextPosition.Orders = previousPosition.Orders.Concat(new[] { nextOrder }).ToList();
+      nextPosition.Order.Transaction.Id = nextOrder.Transaction.Id;
+      nextPosition.Order.Transaction.Time = nextOrder.Transaction.Time;
+      nextPosition.Order.Transaction.Volume += nextOrder.Transaction.Volume;
+      nextPosition.Order.Transaction.Price =
+        nextPosition.Orders.Sum(o => o.Transaction.Volume * o.Transaction.Price) /
+        nextPosition.Orders.Sum(o => o.Transaction.Volume);
 
-      previousPosition.CloseTime = nextPosition.Time;
-      previousPosition.ClosePrice = openPrice.Price;
       previousPosition.GainLoss = previousPosition.GainLossEstimate;
       previousPosition.GainLossPoints = previousPosition.GainLossPointsEstimate;
 
-      Account.ActivePositions.Remove(previousPosition.Id);
-      Account.ActivePositions.Add(nextPosition.Id, nextPosition);
+      Account.ActivePositions.Remove(previousPosition.Order.Transaction.Id);
+      Account.ActivePositions.Add(nextPosition.Order.Transaction.Id, nextPosition);
       Account.Orders.Add(nextOrder);
 
-      var message = new TransactionMessage<ITransactionOrderModel>
+      var message = new StateModel<OrderModel>
       {
         Action = ActionEnum.Update,
         Next = nextOrder
@@ -359,66 +374,44 @@ namespace Terminal.Connector.Simulation
     /// <summary>
     /// Create position when there is a position with the same transaction type 
     /// </summary>
-    /// <param name="nextOrder"></param>
+    /// <param name="order"></param>
     /// <param name="previousPosition"></param>
     /// <returns></returns>
-    protected virtual ITransactionPositionModel DecreasePosition(ITransactionOrderModel nextOrder, ITransactionPositionModel previousPosition)
+    protected virtual PositionModel DecreasePosition(OrderModel order, PositionModel previousPosition)
     {
-      var nextPosition = GetPosition(nextOrder);
-      var openPrices = GetOpenPrices(nextOrder);
-      var openPrice = openPrices.Last();
+      var nextOrder = order.Clone() as OrderModel;
+      var nextPosition = previousPosition.Clone() as PositionModel;
 
-      nextPosition.Time = openPrice.Time;
-      nextPosition.OpenPrice = openPrice.Price;
-      nextPosition.OpenPrices = openPrices;
-      nextPosition.Volume = Math.Abs(nextPosition.Volume.Value - previousPosition.Volume.Value);
+      nextPosition.Orders = previousPosition.Orders.Concat(new[] { nextOrder }).ToList();
+      nextPosition.Order.Transaction.Id = nextOrder.Transaction.Id;
+      nextPosition.Order.Transaction.Time = nextOrder.Transaction.Time;
+      nextPosition.Order.Transaction.Price = nextOrder.Transaction.Price;
+      nextPosition.Order.Transaction.Volume = Math.Abs(
+        previousPosition.Order.Transaction.Volume.Value -
+        nextOrder.Transaction.Volume.Value);
 
-      previousPosition.CloseTime = nextPosition.Time;
-      previousPosition.ClosePrice = nextPosition.OpenPrice;
       previousPosition.GainLoss = previousPosition.GainLossEstimate;
       previousPosition.GainLossPoints = previousPosition.GainLossPointsEstimate;
 
-      Account.ActivePositions.Remove(previousPosition.Id);
+      Account.ActivePositions.Remove(previousPosition.Order.Transaction.Id);
       Account.Positions.Add(previousPosition);
       Account.Orders.Add(nextOrder);
 
-      var message = new TransactionMessage<ITransactionOrderModel>
+      var message = new StateModel<OrderModel>
       {
         Action = ActionEnum.Update,
         Next = nextOrder
       };
 
-      if (nextPosition.Volume.Value.IsEqual(0) is false)
+      if (nextPosition.Order.Transaction.Volume?.IsEqual(0) is false)
       {
         message.Action = ActionEnum.Delete;
-        Account.ActivePositions.Add(nextPosition.Id, nextPosition);
+        Account.ActivePositions.Add(nextPosition.Order.Transaction.Id, nextPosition);
       }
 
       nextOrder.OrderStream(message);
 
       return nextPosition;
-    }
-
-    /// <summary>
-    /// Update position properties based on specified order
-    /// </summary>
-    /// <param name="nextOrder"></param>
-    protected virtual ITransactionPositionModel GetPosition(ITransactionOrderModel nextOrder)
-    {
-      return new PositionModel
-      {
-        Id = nextOrder.Id,
-        Name = nextOrder.Name,
-        Description = nextOrder.Description,
-        Type = nextOrder.Type,
-        Volume = nextOrder.Volume,
-        Side = nextOrder.Side,
-        Group = nextOrder.Group,
-        Price = nextOrder.Price,
-        ActivationPrice = nextOrder.ActivationPrice,
-        Instrument = nextOrder.Instrument,
-        Orders = nextOrder.Orders
-      };
     }
 
     /// <summary>
@@ -432,7 +425,7 @@ namespace Terminal.Connector.Simulation
 
       foreach (var order in activeOrders)
       {
-        var pointModel = order.Instrument.Points.LastOrDefault();
+        var pointModel = order.Transaction.Instrument.Points.LastOrDefault();
 
         if (pointModel is null)
         {
@@ -454,12 +447,12 @@ namespace Terminal.Connector.Simulation
 
         if (isBuyStop || isSellLimit)
         {
-          isExecutable = pointModel.Ask >= order.Price;
+          isExecutable = pointModel.Ask >= order.Transaction.Price;
         }
 
         if (isSellStop || isBuyLimit)
         {
-          isExecutable = pointModel.Bid <= order.Price;
+          isExecutable = pointModel.Bid <= order.Transaction.Price;
         }
 
         if (isExecutable)
@@ -473,13 +466,13 @@ namespace Terminal.Connector.Simulation
     /// Get next available point
     /// </summary>
     /// <returns></returns>
-    protected virtual IPointModel GetRecord(IDictionary<string, StreamReader> streams, IDictionary<string, IPointModel> points)
+    protected virtual PointModel GetRecord(IDictionary<string, StreamReader> streams, IDictionary<string, PointModel> points)
     {
       var index = string.Empty;
 
       foreach (var stream in streams)
       {
-        points.TryGetValue(stream.Key, out IPointModel point);
+        points.TryGetValue(stream.Key, out PointModel point);
 
         if (point is null)
         {
@@ -491,8 +484,8 @@ namespace Terminal.Connector.Simulation
           }
         }
 
-        points.TryGetValue(index, out IPointModel min);
-        points.TryGetValue(stream.Key, out IPointModel current);
+        points.TryGetValue(index, out PointModel min);
+        points.TryGetValue(stream.Key, out PointModel current);
 
         var isOne = string.IsNullOrEmpty(index);
         var isMin = current is not null && min is not null && current.Time <= min.Time;
@@ -516,7 +509,7 @@ namespace Terminal.Connector.Simulation
     /// <param name="name"></param>
     /// <param name="input"></param>
     /// <returns></returns>
-    protected virtual IPointModel Parse(string name, string input)
+    protected virtual PointModel Parse(string name, string input)
     {
       var props = input.Split(" ");
 
@@ -534,13 +527,16 @@ namespace Terminal.Connector.Simulation
 
       var response = new PointModel
       {
-        Name = name,
         Time = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc).AddSeconds(date),
         Ask = ask,
         Bid = bid,
         Last = ask,
         AskSize = askSize,
-        BidSize = bidSize
+        BidSize = bidSize,
+        Instrument = new Instrument()
+        {
+          Name = name
+        }
       };
 
       if (askSize.IsEqual(0))
