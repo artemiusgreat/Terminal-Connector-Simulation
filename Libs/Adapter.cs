@@ -12,8 +12,6 @@ using Terminal.Core.Domains;
 using Terminal.Core.Enums;
 using Terminal.Core.Extensions;
 using Terminal.Core.Models;
-using Terminal.Core.Services;
-using Terminal.Core.Validators;
 
 namespace Terminal.Connector.Simulation
 {
