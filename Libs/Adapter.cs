@@ -57,7 +57,7 @@ namespace Terminal.Connector.Simulation
     /// <summary>
     /// Connect
     /// </summary>
-    public override async Task Connect()
+    public override async Task<IList<ErrorModel>> Connect()
     {
       await Disconnect();
 
@@ -70,12 +70,14 @@ namespace Terminal.Connector.Simulation
       _instruments.ForEach(o => _connections.Add(o.Value));
 
       await Subscribe();
+
+      return null;
     }
 
     /// <summary>
     /// Subscribe to data streams
     /// </summary>
-    public override async Task Subscribe()
+    public override async Task<IList<ErrorModel>> Subscribe()
     {
       await Unsubscribe();
 
@@ -99,25 +101,27 @@ namespace Terminal.Connector.Simulation
         });
 
       _subscriptions.Add(interval);
+
+      return null;
     }
 
     /// <summary>
     /// Save state and dispose
     /// </summary>
-    public override Task Disconnect()
+    public override Task<IList<ErrorModel>> Disconnect()
     {
       Unsubscribe();
 
       _connections?.ForEach(o => o.Dispose());
       _connections?.Clear();
 
-      return Task.FromResult(0);
+      return Task.FromResult<IList<ErrorModel>>(null);
     }
 
     /// <summary>
     /// Unsubscribe from data streams
     /// </summary>
-    public override Task Unsubscribe()
+    public override Task<IList<ErrorModel>> Unsubscribe()
     {
       OrderStream -= OnOrderUpdate;
       Account.Positions.CollectionChanged -= OnPositionUpdate;
@@ -126,23 +130,26 @@ namespace Terminal.Connector.Simulation
       _subscriptions?.ForEach(o => o.Dispose());
       _subscriptions?.Clear();
 
-      return Task.FromResult(0);
+      return Task.FromResult<IList<ErrorModel>>(null);
     }
 
     /// <summary>
     /// Get quote
     /// </summary>
     /// <param name="message"></param>
-    public override Task<PointModel> GetPoint(PointQueryModel message)
+    public override Task<ResponseItemModel<PointModel>> GetPoint(PointQueryModel message)
     {
-      return Task.FromResult(Account.Instruments[message.Name].Points.LastOrDefault());
+      return Task.FromResult(new ResponseItemModel<PointModel>
+      {
+        Item = Account.Instruments[message.Name].Points.LastOrDefault()
+      });
     }
 
     /// <summary>
     /// Create order and depending on the account, send it to the processing queue
     /// </summary>
     /// <param name="orders"></param>
-    public override Task<ResponseModel<OrderModel, IList<ValidationFailure>>> CreateOrders(params OrderModel[] orders)
+    public override Task<ResponseModel<OrderModel>> CreateOrders(params OrderModel[] orders)
     {
       var response = ValidateOrders(CorrectOrders(orders).ToArray());
 
@@ -169,15 +176,10 @@ namespace Terminal.Connector.Simulation
     /// Update orders
     /// </summary>
     /// <param name="orders"></param>
-    public override Task<ResponseModel<OrderModel, IList<ValidationFailure>>> UpdateOrders(params OrderModel[] orders)
+    public override Task<ResponseModel<OrderModel>> UpdateOrders(params OrderModel[] orders)
     {
       var nextOrders = orders.Select(nextOrder =>
       {
-        var x1 = Account.ActiveOrders[nextOrder.Transaction.Id].Clone() as OrderModel;
-        var x2 = Mapper<OrderModel, OrderModel>.Merge(
-          nextOrder,
-          Account.ActiveOrders[nextOrder.Transaction.Id].Clone() as OrderModel);
-
         return Mapper<OrderModel, OrderModel>.Merge(
           nextOrder,
           Account.ActiveOrders[nextOrder.Transaction.Id].Clone() as OrderModel);
@@ -203,9 +205,9 @@ namespace Terminal.Connector.Simulation
     /// Recursively cancel orders
     /// </summary>
     /// <param name="orders"></param>
-    public override Task<ResponseModel<OrderModel, IList<ValidationFailure>>> DeleteOrders(params OrderModel[] orders)
+    public override Task<ResponseModel<OrderModel>> DeleteOrders(params OrderModel[] orders)
     {
-      var response = new ResponseModel<OrderModel, IList<ValidationFailure>>();
+      var response = new ResponseModel<OrderModel>();
 
       foreach (var nextOrder in orders)
       {
@@ -543,6 +545,16 @@ namespace Terminal.Connector.Simulation
       }
 
       return response;
+    }
+
+    public override Task<ResponseItemModel<IList<PointModel>>> GetPoints(PointQueryModel message)
+    {
+      throw new NotImplementedException();
+    }
+
+    public override Task<ResponseItemModel<IList<OptionModel>>> GetOptions(OptionQueryModel message)
+    {
+      throw new NotImplementedException();
     }
   }
 }
