@@ -26,10 +26,10 @@ namespace Terminal.Tests
     {
       var order = new OrderModel();
       var error = "NotEmptyValidator";
-      var (o, e) = base.ValidateOrders(order).Items.First();
-      var errors = GetErrors(e);
+      var response = base.ValidateOrders(order).Items.First();
+      var errors = GetErrors(response.Errors);
 
-      Assert.Equal(4, e.Count);
+      Assert.Equal(4, response.Errors.Count);
       Assert.Contains($"{nameof(order.Side)} {error}", errors);
       Assert.Contains($"{nameof(order.Type)} {error}", errors);
       Assert.Contains($"{nameof(order.TimeSpan)} {error}", errors);
@@ -49,10 +49,10 @@ namespace Terminal.Tests
       };
 
       var error = "NotEmptyValidator";
-      var (o, e) = base.ValidateOrders(order).Items.First();
-      var errors = GetErrors(e);
+      var response = base.ValidateOrders(order).Items.First();
+      var errors = GetErrors(response.Errors);
 
-      Assert.Equal(8, e.Count);
+      Assert.Equal(8, response.Errors.Count);
       Assert.Contains($"{nameof(order.Transaction.Id)} {error}", errors);
       Assert.Contains($"{nameof(order.Transaction.Time)} {error}", errors);
       Assert.Contains($"{nameof(order.Transaction.Price)} {error}", errors);
@@ -80,10 +80,10 @@ namespace Terminal.Tests
       };
 
       var error = "NotEmptyValidator";
-      var (o, e) = base.ValidateOrders(order).Items.First();
-      var errors = GetErrors(e);
+      var response = base.ValidateOrders(order).Items.First();
+      var errors = GetErrors(response.Errors);
 
-      Assert.Equal(10, e.Count);
+      Assert.Equal(10, response.Errors.Count);
       Assert.Contains($"{nameof(order.Transaction.Instrument.Name)} {error}", errors);
       Assert.Contains($"{nameof(order.Transaction.Instrument.Commission)} {error}", errors);
       Assert.Contains($"{nameof(order.Transaction.Instrument.ContractSize)} {error}", errors);
@@ -122,8 +122,8 @@ namespace Terminal.Tests
         }
       };
 
-      var (o, e) = base.ValidateOrders(order).Items.First();
-      var errors = GetErrors(e);
+      var response = base.ValidateOrders(order).Items.First();
+      var errors = GetErrors(response.Errors);
 
       Assert.Contains($"{nameof(order.Transaction.Price)} {error}", errors);
     }
@@ -161,14 +161,14 @@ namespace Terminal.Tests
         }
       };
 
-      var (o, e) = base.ValidateOrders(order).Items.First();
-      var errors = GetErrors(e);
+      var response = base.ValidateOrders(order).Items.First();
+      var errors = GetErrors(response.Errors);
 
       Assert.Contains($"{nameof(order.ActivationPrice)} {activationError}", errors);
       Assert.Contains($"{nameof(order.Transaction.Price)} {orderError}", errors);
     }
 
-    private IEnumerable<string> GetErrors(IList<ValidationFailure> errors)
+    private IEnumerable<string> GetErrors(IList<ErrorModel> errors)
     {
       return errors.Select(o => $"{o.PropertyName.Split('.').Last()} {o.ErrorCode}");
     }
