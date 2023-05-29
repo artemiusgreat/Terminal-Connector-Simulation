@@ -137,11 +137,11 @@ namespace Terminal.Connector.Simulation
     /// Get quote
     /// </summary>
     /// <param name="message"></param>
-    public override Task<ResponseItemModel<PointModel>> GetPoint(PointQueryModel message)
+    public override Task<ResponseItemModel<PointModel>> GetPoint(PointMessageModel message)
     {
       return Task.FromResult(new ResponseItemModel<PointModel>
       {
-        Item = Account.Instruments[message.Name].Points.LastOrDefault()
+        Data = Account.Instruments[message.Name].Points.LastOrDefault()
       });
     }
 
@@ -547,12 +547,12 @@ namespace Terminal.Connector.Simulation
       return response;
     }
 
-    public override Task<ResponseItemModel<IList<PointModel>>> GetPoints(PointQueryModel message)
+    public override Task<ResponseItemModel<IList<PointModel>>> GetPoints(PointMessageModel message)
     {
       throw new NotImplementedException();
     }
 
-    public override Task<ResponseItemModel<IList<OptionModel>>> GetOptions(OptionQueryModel message)
+    public override Task<ResponseItemModel<IList<OptionModel>>> GetOptions(OptionMessageModel message)
     {
       throw new NotImplementedException();
     }
